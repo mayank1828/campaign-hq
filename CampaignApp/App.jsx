@@ -15,8 +15,8 @@ import {
 } from 'lucide-react';
 
 /**
- * FIREBASE CONFIGURATION (DIRECTLY INSERTED)
- * This uses your 'pantry-chef-app' project keys.
+ * FIREBASE CONFIGURATION
+ * Uses your specific pantry-chef-app keys
  */
 const firebaseConfig = {
   apiKey: "AIzaSyCZGI_kaTc2OPE5hL8eQ7DJ5iQ51jMF5L8",
@@ -32,10 +32,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Unique ID for your campaign data
 const appId = 'mayzen-campaign-v1'; 
-
-// Collections
 const USERS_COLLECTION = 'campaign_users';
 const CONTACTS_COLLECTION = 'campaign_contacts';
 
@@ -148,7 +145,7 @@ const Login = ({ onLogin }) => {
     setError('');
 
     if (!auth) {
-      setError("Firebase not initialized.");
+      setError("System Missing Configuration.");
       setLoading(false);
       return;
     }
@@ -178,7 +175,7 @@ const Login = ({ onLogin }) => {
       }
     } catch (err) {
       console.error(err);
-      setError('Login failed. Check internet/database settings.');
+      setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
