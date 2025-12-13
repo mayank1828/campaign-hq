@@ -16,7 +16,7 @@ import {
 
 /**
  * FIREBASE CONFIGURATION
- * Keys are hardcoded for immediate stability as per your request.
+ * Keys are hardcoded for immediate stability.
  */
 const firebaseConfig = {
   apiKey: "AIzaSyCZGI_kaTc2OPE5hL8eQ7DJ5iQ51jMF5L8",
@@ -32,10 +32,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Unique ID for your campaign data
-const appId = 'mayzen-campaign-v1'; 
-
-// Collections
+// Simple Collection Names (Easier for your private Firebase)
 const USERS_COLLECTION = 'campaign_users';
 const CONTACTS_COLLECTION = 'campaign_contacts';
 
@@ -163,7 +160,7 @@ const Login = ({ onLogin }) => {
       } else {
         if (!db) return;
         const q = query(
-          collection(db, 'artifacts', appId, 'public', 'data', USERS_COLLECTION),
+          collection(db, USERS_COLLECTION),
           where('name', '==', name),
           where('pin', '==', pin),
           where('role', '==', 'volunteer')
@@ -273,8 +270,8 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
 
   useEffect(() => {
     if (!db) return;
-    const unsubVol = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', USERS_COLLECTION), (snapshot) => { setVolunteers(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); });
-    const unsubContacts = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION), (snapshot) => {
+    const unsubVol = onSnapshot(collection(db, USERS_COLLECTION), (snapshot) => { setVolunteers(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); });
+    const unsubContacts = onSnapshot(collection(db, CONTACTS_COLLECTION), (snapshot) => {
         const total = snapshot.size;
         const sent = snapshot.docs.filter(d => d.data().status === 'sent').length;
         const assigned = snapshot.docs.filter(d => d.data().assignedTo).length;
@@ -286,22 +283,26 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const addVolunteer = async (e) => {
     e.preventDefault();
     if (!newVolName || !newVolPin || !db) return;
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', USERS_COLLECTION), { name: newVolName, pin: newVolPin, role: 'volunteer', createdAt: serverTimestamp() });
-    setNewVolName(''); setNewVolPin('');
+    try {
+      await addDoc(collection(db, USERS_COLLECTION), { name: newVolName, pin: newVolPin, role: 'volunteer', createdAt: serverTimestamp() });
+      setNewVolName(''); setNewVolPin('');
+      alert("Volunteer Added Successfully!");
+    } catch (err) {
+      alert("Failed to add volunteer. Check Firebase Rules: " + err.message);
+    }
   };
 
-  const deleteVolunteer = async (id) => { if(confirm('Delete?') && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', USERS_COLLECTION, id)); };
+  const deleteVolunteer = async (id) => { if(confirm('Delete?') && db) await deleteDoc(doc(db, USERS_COLLECTION, id)); };
 
-  // --- FIXED: BATCHING FOR BULK UPLOAD ---
   const handleCsvUpload = async () => {
     if (!csvText || !db) return;
     setIsProcessing(true);
     try {
-      const rows = csvText.split('\n').filter(r => r.trim() !== ''); // Filter empty lines
+      // HANDLE WINDOWS AND MAC LINE BREAKS
+      const rows = csvText.split(/\r?\n/).filter(r => r.trim() !== ''); 
       const totalRows = rows.length;
       let count = 0;
       
-      // Batch size for Firestore is 500. We use 450 to be safe.
       const BATCH_SIZE = 450; 
       
       for (let i = 0; i < totalRows; i += BATCH_SIZE) {
@@ -310,14 +311,13 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
         let chunkHasData = false;
 
         chunk.forEach((row) => {
-          // Robust parsing: handle potential quotes or extra spaces
           const parts = row.split(',');
           if (parts.length >= 2) {
              const name = parts[0].trim();
-             const phone = parts[1].trim(); // basic check
+             const phone = parts[1].trim(); 
              
              if (name && phone) {
-                const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION));
+                const docRef = doc(collection(db, CONTACTS_COLLECTION));
                 batch.set(docRef, {
                   name: name,
                   phone: phone,
@@ -337,14 +337,14 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
       }
 
       if (count === 0) {
-        alert("Upload Failed: No valid contacts found. Use format: Name,Phone");
+        alert("Upload Failed: No valid contacts found. Ensure format is: Name,Phone (one per line)");
       } else {
         alert(`Successfully added ${count} contacts!`);
         setCsvText('');
       }
     } catch (err) {
       console.error("Upload error:", err);
-      alert('Error uploading. Check console for details.');
+      alert('Error uploading. Make sure Firebase Database Rules are set to "allow read, write: if true;" for testing. Error: ' + err.message);
     } finally {
       setIsProcessing(false);
     }
@@ -354,7 +354,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
     if (volunteers.length === 0 || !db) return alert("No volunteers!");
     setIsProcessing(true);
     try {
-      const q = query(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION), where('assignedTo', '==', null), limit(500));
+      const q = query(collection(db, CONTACTS_COLLECTION), where('assignedTo', '==', null), limit(500));
       const snapshot = await getDocs(q);
       if (snapshot.empty) { alert("No unassigned contacts!"); setIsProcessing(false); return; }
       const batch = writeBatch(db);
@@ -371,7 +371,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const clearAllContacts = async () => {
     if (!confirm("Delete ALL?") || !db) return;
     setIsProcessing(true);
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION), limit(500));
+    const q = query(collection(db, CONTACTS_COLLECTION), limit(500));
     const snapshot = await getDocs(q);
     const batch = writeBatch(db);
     snapshot.docs.forEach(d => batch.delete(d.ref));
@@ -455,7 +455,7 @@ const VolunteerDashboard = ({ currentUser, onLogout }) => {
 
   useEffect(() => {
     if (!db) return;
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION), where('assignedTo', '==', currentUser.id));
+    const q = query(collection(db, CONTACTS_COLLECTION), where('assignedTo', '==', currentUser.id));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const myContacts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       myContacts.sort((a, b) => (a.status === 'sent' ? 1 : -1));
@@ -467,7 +467,7 @@ const VolunteerDashboard = ({ currentUser, onLogout }) => {
 
   const handleMarkSent = async (contactId) => {
     if (!db) return;
-    const ref = doc(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION, contactId);
+    const ref = doc(db, CONTACTS_COLLECTION, contactId);
     await updateDoc(ref, { status: 'sent', sentAt: serverTimestamp() });
     const newCount = sessionSentCount + 1;
     setSessionSentCount(newCount);
@@ -537,11 +537,18 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    // 1. Initialize Auth
     const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          // Attempt to sign in with the environment's token
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          // No token provided, sign in anonymously
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        // If the token is invalid (e.g. wrong project config), fallback to anonymous
+        console.warn("Custom token auth failed, falling back to anonymous auth:", err);
         await signInAnonymously(auth);
       }
       setAuthReady(true);
@@ -553,13 +560,7 @@ export default function App() {
 
   return (
     <>
-      {!user ? (
-        <Login onLogin={setUser} />
-      ) : user.role === 'admin' ? (
-        <AdminDashboard currentUser={user} onLogout={() => setUser(null)} />
-      ) : (
-        <VolunteerDashboard currentUser={user} onLogout={() => setUser(null)} />
-      )}
+      {!user ? <Login onLogin={setUser} /> : user.role === 'admin' ? <AdminDashboard currentUser={user} onLogout={() => setUser(null)} /> : <VolunteerDashboard currentUser={user} onLogout={() => setUser(null)} />}
     </>
   );
 }
