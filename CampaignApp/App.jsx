@@ -16,7 +16,7 @@ import {
 
 /**
  * FIREBASE CONFIGURATION
- * Uses your specific pantry-chef-app keys
+ * Keys are hardcoded for immediate stability as per your request.
  */
 const firebaseConfig = {
   apiKey: "AIzaSyCZGI_kaTc2OPE5hL8eQ7DJ5iQ51jMF5L8",
@@ -32,7 +32,10 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// Unique ID for your campaign data
 const appId = 'mayzen-campaign-v1'; 
+
+// Collections
 const USERS_COLLECTION = 'campaign_users';
 const CONTACTS_COLLECTION = 'campaign_contacts';
 
@@ -289,25 +292,62 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
 
   const deleteVolunteer = async (id) => { if(confirm('Delete?') && db) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', USERS_COLLECTION, id)); };
 
+  // --- FIXED: BATCHING FOR BULK UPLOAD ---
   const handleCsvUpload = async () => {
     if (!csvText || !db) return;
     setIsProcessing(true);
     try {
-      const rows = csvText.split('\n');
-      const batch = writeBatch(db);
+      const rows = csvText.split('\n').filter(r => r.trim() !== ''); // Filter empty lines
+      const totalRows = rows.length;
       let count = 0;
-      rows.forEach((row) => {
-        const [name, phone] = row.split(',');
-        if (name && phone) {
-          const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION));
-          batch.set(docRef, { name: name.trim(), phone: phone.trim(), assignedTo: null, status: 'pending', createdAt: serverTimestamp() });
-          count++;
+      
+      // Batch size for Firestore is 500. We use 450 to be safe.
+      const BATCH_SIZE = 450; 
+      
+      for (let i = 0; i < totalRows; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = rows.slice(i, i + BATCH_SIZE);
+        let chunkHasData = false;
+
+        chunk.forEach((row) => {
+          // Robust parsing: handle potential quotes or extra spaces
+          const parts = row.split(',');
+          if (parts.length >= 2) {
+             const name = parts[0].trim();
+             const phone = parts[1].trim(); // basic check
+             
+             if (name && phone) {
+                const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', CONTACTS_COLLECTION));
+                batch.set(docRef, {
+                  name: name,
+                  phone: phone,
+                  assignedTo: null,
+                  status: 'pending',
+                  createdAt: serverTimestamp()
+                });
+                chunkHasData = true;
+                count++;
+             }
+          }
+        });
+
+        if (chunkHasData) {
+            await batch.commit();
         }
-      });
-      await batch.commit();
-      alert(`Added ${count} contacts!`);
-      setCsvText('');
-    } catch (err) { console.error(err); alert('Error uploading.'); } finally { setIsProcessing(false); }
+      }
+
+      if (count === 0) {
+        alert("Upload Failed: No valid contacts found. Use format: Name,Phone");
+      } else {
+        alert(`Successfully added ${count} contacts!`);
+        setCsvText('');
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      alert('Error uploading. Check console for details.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const distributeContacts = async () => {
